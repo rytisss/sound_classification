@@ -14,17 +14,17 @@ import scipy.io.wavfile
 
 # Data
 # train
-train_dir = r'C:\src\Projects\sound_classification\data/'
+train_dir = r'C:\Users\Rytis\Desktop\sound_classification\archive\train/'
 # test
-test_dir = r'C:\src\Projects\sound_classification\data/'
+test_dir = r'C:\Users\Rytis\Desktop\sound_classification\archive\test/'
 
 # Directory for weight saving (creates if it does not exist)
-weights_output_dir = r'output/'
+weights_output_dir = r'output_label_smooth/'
 weights_output_name = '5_down'
 # batch size. How many samples you want to feed in one iteration?
-batch_size = 8
+batch_size = 32
 # number_of_epoch. How many epochs you want to train?
-number_of_epoch = 40
+number_of_epoch = 10
 
 # input channels
 input_channels = 4
@@ -32,7 +32,7 @@ input_channels = 4
 signal_length = 80999
 
 
-def signal_classification_model(start_kernels=16, number_of_classes=3, input_shape=(signal_length, input_channels),
+def signal_classification_model(start_kernels=16, number_of_classes=11, input_shape=(signal_length, input_channels),
                                 pretrained_weights=None):
     # https://keras.io/api/layers/convolution_layers/convolution1d/
     model = tf.keras.Sequential([
@@ -79,7 +79,7 @@ def signal_classification_model(start_kernels=16, number_of_classes=3, input_sha
         Dense(number_of_classes, activation='softmax')
     ])
 
-    model.compile(loss=tf.keras.losses.CategoricalCrossentropy(),
+    model.compile(loss=tf.keras.losses.CategoricalCrossentropy(label_smoothing=0.1),
                   optimizer=Adam(lr=1e-3),
                   metrics=['categorical_accuracy'])
     model.summary()
@@ -107,7 +107,7 @@ class CustomSaver(tf.keras.callbacks.Callback):
 # This function keeps the learning rate at 0.001 for the first ten epochs
 # and decreases it exponentially after that.
 def scheduler(epoch):
-    step = epoch // 12
+    step = epoch // 3
     init_lr = 0.001
     lr = init_lr / 2 ** step
     print('Epoch: ' + str(epoch) + ', learning rate = ' + str(lr))
@@ -157,15 +157,11 @@ class data_flow(Sequence):
     def __len__(self):
         return int(np.ceil(len(self.filenames) / float(self.batch_size)))
 
-    def remap_to_8bit(self, image, min_val, max_val):
-        remap_image = np.interp(image, (min_val, max_val), (0, 255))
-        return remap_image.astype(np.uint8)
-
     def get_class_id_by_name(self, path):
         for i, class_name in enumerate(self.class_names):
             if class_name in path:
                 return i
-        raise
+        raise # code should not reach this point... if it happens folder structure might be different than in description
 
     def __getitem__(self, idx):
         batch_x = self.filenames[idx * self.batch_size:(idx + 1) * self.batch_size]
