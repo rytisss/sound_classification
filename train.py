@@ -11,6 +11,7 @@ from tensorflow.keras.utils import Sequence
 from tensorflow.keras.layers import Conv1D, MaxPooling1D, LeakyReLU, BatchNormalization, GlobalAveragePooling1D, Dense
 from tensorflow.keras.optimizers import Adam
 import scipy.io.wavfile
+from sklearn.metrics import classification_report, confusion_matrix
 
 # Data
 # train
@@ -19,7 +20,7 @@ train_dir = r'C:\Users\Rytis\Desktop\sound_classification\archive\train/'
 test_dir = r'C:\Users\Rytis\Desktop\sound_classification\archive\test/'
 
 # Directory for weight saving (creates if it does not exist)
-weights_output_dir = r'output_label_smooth/'
+weights_output_dir = r'output/'
 weights_output_name = '5_down'
 # batch size. How many samples you want to feed in one iteration?
 batch_size = 32
@@ -79,7 +80,7 @@ def signal_classification_model(start_kernels=16, number_of_classes=11, input_sh
         Dense(number_of_classes, activation='softmax')
     ])
 
-    model.compile(loss=tf.keras.losses.CategoricalCrossentropy(label_smoothing=0.1),
+    model.compile(loss=tf.keras.losses.CategoricalCrossentropy(),
                   optimizer=Adam(lr=1e-3),
                   metrics=['categorical_accuracy'])
     model.summary()
@@ -159,9 +160,18 @@ class data_flow(Sequence):
 
     def get_class_id_by_name(self, path):
         for i, class_name in enumerate(self.class_names):
-            if class_name in path:
+            # get last folder from path
+            last_folder = os.path.basename(os.path.dirname(path))
+            if class_name.lower() in last_folder.lower():
                 return i
-        raise # code should not reach this point... if it happens folder structure might be different than in description
+        raise  # code should not reach this point... if it happens folder structure might be different than in description
+
+    def get_labels(self):
+        y = []
+        for i in range(len(self.filenames)):
+            y.append(self.get_class_id_by_name(self.filenames[i]))
+        y = tf.one_hot(y, len(self.class_names))
+        return y
 
     def __getitem__(self, idx):
         batch_x = self.filenames[idx * self.batch_size:(idx + 1) * self.batch_size]
@@ -179,6 +189,16 @@ class data_flow(Sequence):
         return x, y
 
 
+def make_confusion_matrix(model, test_generator):
+    print('Predicting...')
+    true_labels = test_generator.get_labels()
+    y_true = np.argmax(true_labels, axis=1)
+    Y_pred = model.predict(test_generator)
+    y_pred = np.argmax(Y_pred, axis=1)
+    print('Confusion Matrix')
+    print(confusion_matrix(y_true, y_pred))
+
+
 def train():
     # sample_rate, sound_file = scipy.io.wavfile.read(
     #    r'C:\src\Projects\sound_classification\data/kitchen_2_Dishes_1_4_white_80.wav')
@@ -194,6 +214,9 @@ def train():
 
     train_generator = data_flow(train_files, batch_size, classes)
     test_generator = data_flow(test_files, batch_size, classes)
+
+    # TODO: delete/comment following
+    make_confusion_matrix(model, test_generator)
 
     # create weights output directory
     if not os.path.exists(weights_output_dir):
