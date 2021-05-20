@@ -20,7 +20,7 @@ train_dir = r'C:\Users\Rytis\Desktop\sound_classification\archive\train/'
 test_dir = r'C:\Users\Rytis\Desktop\sound_classification\archive\test/'
 
 # Directory for weight saving (creates if it does not exist)
-weights_output_dir = r'output/'
+weights_output_dir = r'output_label_smooth/'
 weights_output_name = '5_down'
 # batch size. How many samples you want to feed in one iteration?
 batch_size = 32
@@ -80,7 +80,7 @@ def signal_classification_model(start_kernels=16, number_of_classes=11, input_sh
         Dense(number_of_classes, activation='softmax')
     ])
 
-    model.compile(loss=tf.keras.losses.CategoricalCrossentropy(),
+    model.compile(loss=tf.keras.losses.CategoricalCrossentropy(label_smoothing=0.1),
                   optimizer=Adam(lr=1e-3),
                   metrics=['categorical_accuracy'])
     model.summary()
@@ -197,6 +197,9 @@ def make_confusion_matrix(model, test_generator):
     y_pred = np.argmax(Y_pred, axis=1)
     print('Confusion Matrix')
     print(confusion_matrix(y_true, y_pred))
+    print(classification_report(y_true, y_pred, target_names=test_generator.class_names))
+    print('names:')
+    print(test_generator.class_names)
 
 
 def train():
@@ -210,7 +213,7 @@ def train():
     test_files = get_all_audio_files(test_dir)
 
     # Define model
-    model = signal_classification_model()
+    model = signal_classification_model(pretrained_weights=r'C:\src\Projects\sound_classification\output/_best.hdf5')
 
     train_generator = data_flow(train_files, batch_size, classes)
     test_generator = data_flow(test_files, batch_size, classes)
