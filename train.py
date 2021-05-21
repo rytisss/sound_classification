@@ -8,12 +8,11 @@ tf.config.experimental.set_memory_growth(physical_devices[0], True)
 
 import numpy as np
 from tensorflow.keras.utils import Sequence
-from tensorflow.keras.layers import Conv1D, MaxPooling1D, LeakyReLU, BatchNormalization, GlobalAveragePooling1D, Dense
+from tensorflow.keras.layers import Conv1D, MaxPooling1D, LeakyReLU, BatchNormalization, GlobalAveragePooling1D, Dense, LSTM
 from tensorflow.keras.optimizers import Adam
 import scipy.io.wavfile
 from sklearn.metrics import classification_report, confusion_matrix
-import matplotlib.pyplot as plt
-from matplotlib.ticker import MultipleLocator
+from collections import Counter
 
 # Data
 # train
@@ -22,12 +21,12 @@ train_dir = r'C:\Users\Rytis\Desktop\sound_classification\archive\train/'
 test_dir = r'C:\Users\Rytis\Desktop\sound_classification\archive\test/'
 
 # Directory for weight saving (creates if it does not exist)
-weights_output_dir = r'output_label_smooth/'
+weights_output_dir = r'output_lstm_smooth_01/'
 weights_output_name = '5_down'
 # batch size. How many samples you want to feed in one iteration?
 batch_size = 32
 # number_of_epoch. How many epochs you want to train?
-number_of_epoch = 10
+number_of_epoch = 12
 
 # input channels
 input_channels = 4
@@ -73,8 +72,9 @@ def signal_classification_model(start_kernels=16, number_of_classes=11, input_sh
         BatchNormalization(),
         LeakyReLU(alpha=0.1),
         MaxPooling1D(pool_size=2, strides=2),  # <---5
+        LSTM(79),
         ############# fully connected
-        GlobalAveragePooling1D(),
+        #GlobalAveragePooling1D(),
         Dense(128),
         LeakyReLU(alpha=0.1),
         Dense(32),
@@ -278,7 +278,7 @@ def make_confusion_matrix(model, test_generator):
     conf_matrix = confusion_matrix(y_true, y_pred)
     plot_confusion_matrix(conf_matrix, test_generator.class_names)
     print(conf_matrix)
-   """ fig = plt.figure()
+    """ fig = plt.figure()
     ax = fig.add_subplot(111)
     cax = ax.matshow(conf_matrix)
     plt.title('Confusion matrix of the classifier')
@@ -307,19 +307,30 @@ def train():
     test_files = get_all_audio_files(test_dir)
 
     # Define model
-    model = signal_classification_model(pretrained_weights=r'C:\src\Projects\sound_classification\output/_best.hdf5')
+    model = signal_classification_model()
 
     train_generator = data_flow(train_files, batch_size, classes)
     test_generator = data_flow(test_files, batch_size, classes)
 
     # TODO: delete/comment following
-    make_confusion_matrix(model, test_generator)
+    # make_confusion_matrix(model, test_generator)
 
     # create weights output directory
     if not os.path.exists(weights_output_dir):
         print('Output directory doesnt exist!\n')
         print('It will be created!\n')
         os.makedirs(weights_output_dir)
+
+    # calculate weights for each class
+    # calculate class weights
+    labels = np.argmax(train_generator.get_labels(), axis=1)
+    classes_count = dict(Counter(labels))
+    biggest_class = max(classes_count.values())
+    class_weights = {}
+    for key, value in classes_count.items():
+        class_weights.update({key: float(biggest_class) / float(value)})
+
+    print(class_weights)
 
     # Define template of each epoch weight name. They will be save in separate files
     weights_name = weights_output_dir + weights_output_name + "-{epoch:03d}-{loss:.4f}.hdf5"
@@ -333,7 +344,8 @@ def train():
     model.fit(train_generator,
               epochs=number_of_epoch,
               validation_data=test_generator,
-              callbacks=[model_checkpoint, learning_rate_scheduler, saver])
+              callbacks=[model_checkpoint, learning_rate_scheduler, saver],
+              class_weight=class_weights)
 
 
 if __name__ == "__main__":
