@@ -8,25 +8,28 @@ tf.config.experimental.set_memory_growth(physical_devices[0], True)
 
 import numpy as np
 from tensorflow.keras.utils import Sequence
-from tensorflow.keras.layers import Conv1D, MaxPooling1D, LeakyReLU, BatchNormalization, GlobalAveragePooling1D, Dense, LSTM
+from tensorflow.keras.layers import Conv1D, MaxPooling1D, LeakyReLU, BatchNormalization, \
+    GlobalAveragePooling1D, Dense, LSTM
 from tensorflow.keras.optimizers import Adam
 import scipy.io.wavfile
-from sklearn.metrics import classification_report, confusion_matrix
 from collections import Counter
 
 # Data
 # train
-train_dir = r'C:\Users\Rytis\Desktop\sound_classification\archive\train/'
+train_dir = '/home/gpu0/Desktop/rytis/sounds/train/'
 # test
-test_dir = r'C:\Users\Rytis\Desktop\sound_classification\archive\test/'
+test_dir = '/home/gpu0/Desktop/rytis/sounds/test/'
+
+# number of threads for data loading
+number_of_threads = 4
 
 # Directory for weight saving (creates if it does not exist)
-weights_output_dir = r'output_lstm_smooth_01/'
-weights_output_name = '5_down'
+weights_output_dir = r'cnn_5_lstm_16k_smooth/'
+weights_output_name = '5_lstm_down'
 # batch size. How many samples you want to feed in one iteration?
 batch_size = 32
 # number_of_epoch. How many epochs you want to train?
-number_of_epoch = 12
+number_of_epoch = 30
 
 # input channels
 input_channels = 4
@@ -34,9 +37,10 @@ input_channels = 4
 signal_length = 80999
 
 
-def signal_classification_model(start_kernels=16, number_of_classes=11, input_shape=(signal_length, input_channels),
-                                pretrained_weights=None):
-    # https://keras.io/api/layers/convolution_layers/convolution1d/
+def signal_classification_model_CNN_5(start_kernels=16, number_of_classes=11,
+                                      input_shape=(signal_length, input_channels),
+                                      pretrained_weights=None,
+                                      smooth=0.1):
     model = tf.keras.Sequential([
         ############ 1
         Conv1D(start_kernels, kernel_size=7, strides=2, padding='same', kernel_initializer='he_normal', use_bias=False,
@@ -46,35 +50,129 @@ def signal_classification_model(start_kernels=16, number_of_classes=11, input_sh
         MaxPooling1D(pool_size=2, strides=2),  # <---1
         ############ 2
         Conv1D(start_kernels * 2, kernel_size=5, strides=2, padding='same', kernel_initializer='he_normal',
-               use_bias=False,
-               input_shape=input_shape),
+               use_bias=False),
         BatchNormalization(),
         LeakyReLU(alpha=0.1),
         MaxPooling1D(pool_size=2, strides=2),  # <---2
         ############ 3
         Conv1D(start_kernels * 4, kernel_size=5, strides=2, padding='same', kernel_initializer='he_normal',
-               use_bias=False,
-               input_shape=input_shape),
+               use_bias=False),
         BatchNormalization(),
         LeakyReLU(alpha=0.1),
         MaxPooling1D(pool_size=2, strides=2),  # <---3
         ############# 4
         Conv1D(start_kernels * 8, kernel_size=5, strides=2, padding='same', kernel_initializer='he_normal',
-               use_bias=False,
-               input_shape=input_shape),
+               use_bias=False),
         BatchNormalization(),
         LeakyReLU(alpha=0.1),
         MaxPooling1D(pool_size=2, strides=2),  # <---4
         ############# 5
-        Conv1D(start_kernels * 8, kernel_size=5, strides=2, padding='same', kernel_initializer='he_normal',
-               use_bias=False,
+        Conv1D(start_kernels * 16, kernel_size=5, strides=2, padding='same', kernel_initializer='he_normal',
+               use_bias=False),
+        BatchNormalization(),
+        LeakyReLU(alpha=0.1),
+        MaxPooling1D(pool_size=2, strides=2),  # <---4
+        GlobalAveragePooling1D(),
+        Dense(128),
+        LeakyReLU(alpha=0.1),
+        Dense(32),
+        LeakyReLU(alpha=0.1),
+        Dense(number_of_classes, activation='softmax')
+    ])
+    if smooth > 0.0:
+        model.compile(loss=tf.keras.losses.CategoricalCrossentropy(label_smoothing=smooth),
+                      optimizer=Adam(lr=1e-3),
+                      metrics=['categorical_accuracy'])
+    else:
+        model.compile(loss=tf.keras.losses.CategoricalCrossentropy(),
+                      optimizer=Adam(lr=1e-3),
+                      metrics=['categorical_accuracy'])
+    model.summary()
+    if pretrained_weights:
+        model.load_weights(pretrained_weights)
+    return model
+
+
+def signal_classification_model_CNN_5_lstm(start_kernels=16, number_of_classes=11,
+                                           input_shape=(signal_length, input_channels),
+                                           pretrained_weights=None,
+                                           smooth=0.1):
+    model = tf.keras.Sequential([
+        ############ 1
+        Conv1D(start_kernels, kernel_size=7, strides=2, padding='same', kernel_initializer='he_normal', use_bias=False,
                input_shape=input_shape),
         BatchNormalization(),
         LeakyReLU(alpha=0.1),
-        MaxPooling1D(pool_size=2, strides=2),  # <---5
-        LSTM(79),
-        ############# fully connected
-        #GlobalAveragePooling1D(),
+        MaxPooling1D(pool_size=2, strides=2),  # <---1
+        ############ 2
+        Conv1D(start_kernels * 2, kernel_size=5, strides=2, padding='same', kernel_initializer='he_normal',
+               use_bias=False),
+        BatchNormalization(),
+        LeakyReLU(alpha=0.1),
+        MaxPooling1D(pool_size=2, strides=2),  # <---2
+        ############ 3
+        Conv1D(start_kernels * 4, kernel_size=5, strides=2, padding='same', kernel_initializer='he_normal',
+               use_bias=False),
+        BatchNormalization(),
+        LeakyReLU(alpha=0.1),
+        MaxPooling1D(pool_size=2, strides=2),  # <---3
+        ############# 4
+        Conv1D(start_kernels * 8, kernel_size=5, strides=2, padding='same', kernel_initializer='he_normal',
+               use_bias=False),
+        BatchNormalization(),
+        LeakyReLU(alpha=0.1),
+        MaxPooling1D(pool_size=2, strides=2),  # <---4
+        ############# 5
+        Conv1D(start_kernels * 16, kernel_size=5, strides=2, padding='same', kernel_initializer='he_normal',
+               use_bias=False),
+        BatchNormalization(),
+        LeakyReLU(alpha=0.1),
+        MaxPooling1D(pool_size=2, strides=2),  # <---4
+        LSTM(128),
+        Dense(128),
+        LeakyReLU(alpha=0.1),
+        Dense(32),
+        LeakyReLU(alpha=0.1),
+        Dense(number_of_classes, activation='softmax')
+    ])
+    if smooth > 0.0:
+        model.compile(loss=tf.keras.losses.CategoricalCrossentropy(label_smoothing=smooth),
+                      optimizer=Adam(lr=1e-3),
+                      metrics=['categorical_accuracy'])
+    else:
+        model.compile(loss=tf.keras.losses.CategoricalCrossentropy(),
+                      optimizer=Adam(lr=1e-3),
+                      metrics=['categorical_accuracy'])
+    model.summary()
+    if pretrained_weights:
+        model.load_weights(pretrained_weights)
+    return model
+
+
+def signal_classification_model_CNN_3(start_kernels=16, number_of_classes=11,
+                                      input_shape=(signal_length, input_channels),
+                                      pretrained_weights=None,
+                                      smooth=0.1):
+    model = tf.keras.Sequential([
+        ############ 1
+        Conv1D(start_kernels, kernel_size=7, strides=2, padding='same', kernel_initializer='he_normal', use_bias=False,
+               input_shape=input_shape),
+        BatchNormalization(),
+        LeakyReLU(alpha=0.1),
+        MaxPooling1D(pool_size=2, strides=2),  # <---1
+        ############ 2
+        Conv1D(start_kernels * 2, kernel_size=5, strides=2, padding='same', kernel_initializer='he_normal',
+               use_bias=False),
+        BatchNormalization(),
+        LeakyReLU(alpha=0.1),
+        MaxPooling1D(pool_size=2, strides=2),  # <---2
+        ############ 3
+        Conv1D(start_kernels * 4, kernel_size=5, strides=2, padding='same', kernel_initializer='he_normal',
+               use_bias=False),
+        BatchNormalization(),
+        LeakyReLU(alpha=0.1),
+        MaxPooling1D(pool_size=2, strides=2),  # <---3
+        GlobalAveragePooling1D(),
         Dense(128),
         LeakyReLU(alpha=0.1),
         Dense(32),
@@ -82,9 +180,60 @@ def signal_classification_model(start_kernels=16, number_of_classes=11, input_sh
         Dense(number_of_classes, activation='softmax')
     ])
 
-    model.compile(loss=tf.keras.losses.CategoricalCrossentropy(label_smoothing=0.1),
-                  optimizer=Adam(lr=1e-3),
-                  metrics=['categorical_accuracy'])
+    if smooth > 0.0:
+        model.compile(loss=tf.keras.losses.CategoricalCrossentropy(label_smoothing=smooth),
+                      optimizer=Adam(lr=1e-3),
+                      metrics=['categorical_accuracy'])
+    else:
+        model.compile(loss=tf.keras.losses.CategoricalCrossentropy(),
+                      optimizer=Adam(lr=1e-3),
+                      metrics=['categorical_accuracy'])
+    model.summary()
+    if pretrained_weights:
+        model.load_weights(pretrained_weights)
+    return model
+
+
+def signal_classification_model_CNN_3_lstm(start_kernels=16, number_of_classes=11,
+                                           input_shape=(signal_length, input_channels),
+                                           pretrained_weights=None,
+                                           smooth=0.1):
+    model = tf.keras.Sequential([
+        ############ 1
+        Conv1D(start_kernels, kernel_size=7, strides=2, padding='same', kernel_initializer='he_normal', use_bias=False,
+               input_shape=input_shape),
+        BatchNormalization(),
+        LeakyReLU(alpha=0.1),
+        MaxPooling1D(pool_size=2, strides=2),  # <---1
+        ############ 2
+        Conv1D(start_kernels * 2, kernel_size=5, strides=2, padding='same', kernel_initializer='he_normal',
+               use_bias=False),
+        BatchNormalization(),
+        LeakyReLU(alpha=0.1),
+        MaxPooling1D(pool_size=2, strides=2),  # <---2
+        ############ 3
+        Conv1D(start_kernels * 4, kernel_size=5, strides=2, padding='same', kernel_initializer='he_normal',
+               use_bias=False),
+        BatchNormalization(),
+        LeakyReLU(alpha=0.1),
+        MaxPooling1D(pool_size=2, strides=2),  # <---3
+        # GlobalAveragePooling1D(),
+        LSTM(128),
+        Dense(128),
+        LeakyReLU(alpha=0.1),
+        Dense(32),
+        LeakyReLU(alpha=0.1),
+        Dense(number_of_classes, activation='softmax')
+    ])
+
+    if smooth > 0.0:
+        model.compile(loss=tf.keras.losses.CategoricalCrossentropy(label_smoothing=smooth),
+                      optimizer=Adam(lr=1e-3),
+                      metrics=['categorical_accuracy'])
+    else:
+        model.compile(loss=tf.keras.losses.CategoricalCrossentropy(),
+                      optimizer=Adam(lr=1e-3),
+                      metrics=['categorical_accuracy'])
     model.summary()
     if pretrained_weights:
         model.load_weights(pretrained_weights)
@@ -102,7 +251,7 @@ class CustomSaver(tf.keras.callbacks.Callback):
             if val_score > self.best_val_score:
                 self.best_val_score = val_score
                 print('New best weights found!')
-                self.model.save(weights_output_dir + '_best.hdf5')
+                self.model.save(weights_output_dir + str(val_score) + '_best.hdf5')
         else:
             print('Key val_accuracy does not exist!')
 
@@ -110,7 +259,7 @@ class CustomSaver(tf.keras.callbacks.Callback):
 # This function keeps the learning rate at 0.001 for the first ten epochs
 # and decreases it exponentially after that.
 def scheduler(epoch):
-    step = epoch // 3
+    step = epoch // 5
     init_lr = 0.001
     lr = init_lr / 2 ** step
     print('Epoch: ' + str(epoch) + ', learning rate = ' + str(lr))
@@ -157,6 +306,10 @@ class data_flow(Sequence):
         self.batch_size = batch_size
         self.class_names = class_names
 
+    def on_epoch_end(self):
+        # shuffle data
+        random.shuffle(self.filenames)
+
     def __len__(self):
         return int(np.ceil(len(self.filenames) / float(self.batch_size)))
 
@@ -184,136 +337,28 @@ class data_flow(Sequence):
             normalized_signal = normalize(sound_file)
             x.append(normalized_signal)
             y.append(self.get_class_id_by_name(filename))
-
         x = np.array(x)
         y = tf.one_hot(y, len(self.class_names))
-
         return x, y
 
 
-def plot_confusion_matrix(cm,
-                          target_names,
-                          title='Confusion matrix',
-                          cmap=None,
-                          normalize=True):
-    """
-    given a sklearn confusion matrix (cm), make a nice plot
-
-    Arguments
-    ---------
-    cm:           confusion matrix from sklearn.metrics.confusion_matrix
-
-    target_names: given classification classes such as [0, 1, 2]
-                  the class names, for example: ['high', 'medium', 'low']
-
-    title:        the text to display at the top of the matrix
-
-    cmap:         the gradient of the values displayed from matplotlib.pyplot.cm
-                  see http://matplotlib.org/examples/color/colormaps_reference.html
-                  plt.get_cmap('jet') or plt.cm.Blues
-
-    normalize:    If False, plot the raw numbers
-                  If True, plot the proportions
-
-    Usage
-    -----
-    plot_confusion_matrix(cm           = cm,                  # confusion matrix created by
-                                                              # sklearn.metrics.confusion_matrix
-                          normalize    = True,                # show proportions
-                          target_names = y_labels_vals,       # list of names of the classes
-                          title        = best_estimator_name) # title of graph
-
-    Citiation
-    ---------
-    http://scikit-learn.org/stable/auto_examples/model_selection/plot_confusion_matrix.html
-
-    """
-    import matplotlib.pyplot as plt
-    import numpy as np
-    import itertools
-
-    accuracy = np.trace(cm) / np.sum(cm).astype('float')
-    misclass = 1 - accuracy
-
-    if cmap is None:
-        cmap = plt.get_cmap('Blues')
-
-    plt.figure(figsize=(8, 6))
-    plt.imshow(cm, interpolation='nearest', cmap=cmap)
-    plt.title(title)
-    plt.colorbar()
-
-    if target_names is not None:
-        tick_marks = np.arange(len(target_names))
-        plt.xticks(tick_marks, target_names, rotation=45)
-        plt.yticks(tick_marks, target_names)
-
-    if normalize:
-        cm = cm.astype('float') / cm.sum(axis=1)[:, np.newaxis]
-
-    thresh = cm.max() / 1.5 if normalize else cm.max() / 2
-    for i, j in itertools.product(range(cm.shape[0]), range(cm.shape[1])):
-        if normalize:
-            plt.text(j, i, "{:0.4f}".format(cm[i, j]),
-                     horizontalalignment="center",
-                     color="white" if cm[i, j] > thresh else "black")
-        else:
-            plt.text(j, i, "{:,}".format(cm[i, j]),
-                     horizontalalignment="center",
-                     color="white" if cm[i, j] > thresh else "black")
-
-    plt.tight_layout()
-    plt.ylabel('True label')
-    plt.xlabel('Predicted label\naccuracy={:0.4f}; misclass={:0.4f}'.format(accuracy, misclass))
-    plt.show()
-
-
-def make_confusion_matrix(model, test_generator):
-    print('Predicting...')
-    true_labels = test_generator.get_labels()
-    y_true = np.argmax(true_labels, axis=1)
-    Y_pred = model.predict(test_generator)
-    y_pred = np.argmax(Y_pred, axis=1)
-    print('Confusion Matrix')
-    conf_matrix = confusion_matrix(y_true, y_pred)
-    plot_confusion_matrix(conf_matrix, test_generator.class_names)
-    print(conf_matrix)
-    """ fig = plt.figure()
-    ax = fig.add_subplot(111)
-    cax = ax.matshow(conf_matrix)
-    plt.title('Confusion matrix of the classifier')
-    fig.colorbar(cax)
-    ax.xaxis.set_major_locator(MultipleLocator(1));
-    ax.yaxis.set_major_locator(MultipleLocator(1))
-    ax.set_xticklabels(test_generator.class_names)
-
-    ax.set_yticklabels(test_generator.class_names)
-    plt.xlabel('Predicted')
-    plt.ylabel('True')
-    plt.show()
-    print(classification_report(y_true, y_pred, target_names=test_generator.class_names))
-    print('names:')
-    print(test_generator.class_names)"""
-
-
 def train():
-    # sample_rate, sound_file = scipy.io.wavfile.read(
-    #    r'C:\src\Projects\sound_classification\data/kitchen_2_Dishes_1_4_white_80.wav')
-    # normalized_signal = normalize(sound_file)
+    tf.keras.backend.clear_session()
 
+    weights_output_dir = r'cnn_5_16k_weighted/'
+    weights_output_name = '5_down'
+
+    print('weights 3cnn')
     # get all classes folder in dir
     classes = get_classes_names(train_dir)
     train_files = get_all_audio_files(train_dir)
     test_files = get_all_audio_files(test_dir)
 
     # Define model
-    model = signal_classification_model()
+    model = signal_classification_model_CNN_5(smooth=0.0)
 
     train_generator = data_flow(train_files, batch_size, classes)
     test_generator = data_flow(test_files, batch_size, classes)
-
-    # TODO: delete/comment following
-    # make_confusion_matrix(model, test_generator)
 
     # create weights output directory
     if not os.path.exists(weights_output_dir):
@@ -331,7 +376,6 @@ def train():
         class_weights.update({key: float(biggest_class) / float(value)})
 
     print(class_weights)
-
     # Define template of each epoch weight name. They will be save in separate files
     weights_name = weights_output_dir + weights_output_name + "-{epoch:03d}-{loss:.4f}.hdf5"
     # Custom saving for the best-performing weights
@@ -341,12 +385,23 @@ def train():
     # Make checkpoint for saving each
     model_checkpoint = tf.keras.callbacks.ModelCheckpoint(weights_name, monitor='loss', verbose=1, save_best_only=False,
                                                           save_weights_only=False)
+
     model.fit(train_generator,
               epochs=number_of_epoch,
               validation_data=test_generator,
               callbacks=[model_checkpoint, learning_rate_scheduler, saver],
               class_weight=class_weights)
 
+def test():
+    test_files = get_all_audio_files(test_dir)
+    classes = get_classes_names(test_dir)
+    test_generator = data_flow(test_files, batch_size, classes)
+    true_labels = test_generator.get_labels()
+    # define the model
+    pretrained_weights = r''
+    y_true = np.argmax(true_labels, axis=1)
+    Y_pred = model.predict(test_generator)
 
 if __name__ == "__main__":
     train()
+    test()
