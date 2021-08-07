@@ -13,12 +13,13 @@ from tensorflow.keras.layers import Conv1D, MaxPooling1D, LeakyReLU, BatchNormal
 from tensorflow.keras.optimizers import Adam
 import scipy.io.wavfile
 from collections import Counter
+from sklearn.metrics import jaccard_score
 
 # Data
 # train
-train_dir = '/home/gpu0/Desktop/rytis/sounds/train/'
+train_dir = r'C:\Users\rytis\Desktop\sound_classification\train/'
 # test
-test_dir = '/home/gpu0/Desktop/rytis/sounds/test/'
+test_dir = r'C:\Users\rytis\Desktop\sound_classification\test/'
 
 # number of threads for data loading
 number_of_threads = 4
@@ -392,16 +393,22 @@ def train():
               callbacks=[model_checkpoint, learning_rate_scheduler, saver],
               class_weight=class_weights)
 
+# testing Jaccard index purpose
 def test():
     test_files = get_all_audio_files(test_dir)
     classes = get_classes_names(test_dir)
     test_generator = data_flow(test_files, batch_size, classes)
     true_labels = test_generator.get_labels()
     # define the model
-    pretrained_weights = r''
+    pretrained_weights = r'C:\src\Projects\sound_classification\weights\cnn_5_16k_smooth_weighted/5_down_weight-027-1.6793.hdf5'
+    model = signal_classification_model_CNN_5(pretrained_weights=pretrained_weights)
     y_true = np.argmax(true_labels, axis=1)
-    Y_pred = model.predict(test_generator)
+    y_pred = model.predict(test_generator)
+    y_pred = np.argmax(y_pred, axis=1)
+    jaccard_index = jaccard_score(y_true, y_pred, average=None)
+    print(jaccard_index)
+
 
 if __name__ == "__main__":
-    train()
+    #train()
     test()
